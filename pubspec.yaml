@@ -1,0 +1,29 @@
+name: el_torreon_ventas
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  mobile_scanner: ^7.2.0
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  file_picker: ^10.3.10
+  excel: ^4.0.6
+  share_plus: ^12.0.1
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
