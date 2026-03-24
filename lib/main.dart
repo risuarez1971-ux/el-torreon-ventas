@@ -390,21 +390,24 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
   }
 
   Future<void> _escanearEnBusqueda() async {
-    final codigo = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const EscanerPage()),
-    );
-    if (codigo == null || !mounted) return;
+  final codigo = await Navigator.push<String>(
+    context,
+    MaterialPageRoute(builder: (_) => const EscanerPage()),
+  );
+  if (codigo == null || !mounted) return;
 
-    final existente = await DatabaseService.buscarPorBarra(codigo);
-    if (!mounted) return;
+  final existente = await DatabaseService.buscarPorBarra(codigo);
+  if (!mounted) return;
 
-    if (existente != null) {
-      _abrirActualizacionPrecio(existente);
-    } else {
-      _abrirFormulario(barraPrecargada: codigo);
-    }
+  if (existente != null) {
+    // Mostrar en la lista, no abrir diálogo de precios
+    _searchController.text = codigo;
+    setState(() => _queryActual = codigo);
+    _cargarPagina(reset: true);
+  } else {
+    _abrirFormulario(barraPrecargada: codigo);
   }
+}
 
   void _abrirActualizacionPrecio(Producto producto) {
     final mayorCtrl = TextEditingController(text: producto.mayor);
