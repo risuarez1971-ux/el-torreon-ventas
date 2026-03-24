@@ -11,10 +11,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
-// ─────────────────────────────────────────────
-// MODELO
-// ─────────────────────────────────────────────
-
 class Producto {
   final int? id;
   final String codigo;
@@ -80,10 +76,6 @@ class Producto {
       );
 }
 
-// ─────────────────────────────────────────────
-// BASE DE DATOS (sqflite)
-// ─────────────────────────────────────────────
-
 class DatabaseService {
   static Database? _db;
 
@@ -123,8 +115,8 @@ class DatabaseService {
     final q = '%$query%';
     final rows = await database.query(
       'productos',
-      where: 'desc LIKE ? OR barra LIKE ?',
-      whereArgs: [q, q],
+      where: 'desc LIKE ? OR barra LIKE ? OR codigo LIKE ? OR marca LIKE ?',
+      whereArgs: [q, q, q, q],
       orderBy: 'desc COLLATE NOCASE',
       limit: limit,
       offset: offset,
@@ -132,8 +124,7 @@ class DatabaseService {
     return rows.map(Producto.fromMap).toList();
   }
 
-  static Future<List<Producto>> listar(
-      {int limit = 60, int offset = 0}) async {
+  static Future<List<Producto>> listar({int limit = 60, int offset = 0}) async {
     final database = await db;
     final rows = await database.query(
       'productos',
@@ -147,19 +138,17 @@ class DatabaseService {
   static Future<int> contar({String? query}) async {
     final database = await db;
     if (query == null || query.isEmpty) {
-      final result =
-          await database.rawQuery('SELECT COUNT(*) as c FROM productos');
+      final result = await database.rawQuery('SELECT COUNT(*) as c FROM productos');
       return result.first['c'] as int;
     }
     final q = '%$query%';
     final result = await database.rawQuery(
-      'SELECT COUNT(*) as c FROM productos WHERE desc LIKE ? OR barra LIKE ?',
-      [q, q],
+      'SELECT COUNT(*) as c FROM productos WHERE desc LIKE ? OR barra LIKE ? OR codigo LIKE ? OR marca LIKE ?',
+      [q, q, q, q],
     );
     return result.first['c'] as int;
   }
 
-  // Busca por código de barras exacto
   static Future<Producto?> buscarPorBarra(String barra) async {
     final database = await db;
     final rows = await database.query(
@@ -170,6 +159,16 @@ class DatabaseService {
     );
     if (rows.isEmpty) return null;
     return Producto.fromMap(rows.first);
+  }
+
+  static Future<String> proximoCodigo() async {
+    final database = await db;
+    final result = await database.rawQuery(
+      "SELECT MAX(CAST(codigo AS INTEGER)) as max_cod FROM productos WHERE codigo != '' AND codigo GLOB '[0-9]*'",
+    );
+    final maxCod = result.first['max_cod'];
+    if (maxCod == null) return '1';
+    return ((maxCod as int) + 1).toString();
   }
 
   static Future<void> insertar(Producto producto) async {
@@ -212,15 +211,10 @@ class DatabaseService {
 
   static Future<List<Producto>> todos() async {
     final database = await db;
-    final rows =
-        await database.query('productos', orderBy: 'desc COLLATE NOCASE');
+    final rows = await database.query('productos', orderBy: 'desc COLLATE NOCASE');
     return rows.map(Producto.fromMap).toList();
   }
 }
-
-// ─────────────────────────────────────────────
-// PARSEO EN ISOLATE
-// ─────────────────────────────────────────────
 
 class _ParseArgs {
   final String path;
@@ -282,10 +276,6 @@ List<Producto> _parsearArchivo(_ParseArgs args) {
   return productos;
 }
 
-// ─────────────────────────────────────────────
-// MAIN
-// ─────────────────────────────────────────────
-
 const _kRojo = Color(0xFFB71C1C);
 
 void main() {
@@ -294,10 +284,6 @@ void main() {
     debugShowCheckedModeBanner: false,
   ));
 }
-
-// ─────────────────────────────────────────────
-// APP PRINCIPAL
-// ─────────────────────────────────────────────
 
 class ListaPreciosApp extends StatefulWidget {
   const ListaPreciosApp({super.key});
@@ -313,13 +299,11 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
   bool _hayMas = true;
   int _offset = 0;
   static const int _pageSize = 60;
-
   int? _selectedId;
 
   final TextEditingController _searchController = TextEditingController();
   String _queryActual = '';
   Timer? _debounce;
-
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -337,7 +321,6 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     super.dispose();
   }
 
-  // Solo actualiza el contador al iniciar — la lista queda vacía
   Future<void> _actualizarContador() async {
     final total = await DatabaseService.contar();
     if (mounted) setState(() => _totalCount = total);
@@ -354,7 +337,6 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
 
   Future<void> _cargarPagina({bool reset = false}) async {
     if (_cargando) return;
-    // Sin query → pantalla en blanco
     if (_queryActual.isEmpty) {
       setState(() {
         _lista = [];
@@ -373,8 +355,7 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     }
 
     final query = _queryActual;
-    final nuevos = await DatabaseService.buscar(query,
-        limit: _pageSize, offset: _offset);
+    final nuevos = await DatabaseService.buscar(query, limit: _pageSize, offset: _offset);
     final total = await DatabaseService.contar(query: query);
 
     setState(() {
@@ -396,7 +377,6 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
       final trimmed = value.trim();
       setState(() => _queryActual = trimmed);
       if (trimmed.isEmpty) {
-        // Limpiar lista al borrar búsqueda
         setState(() {
           _lista = [];
           _selectedId = null;
@@ -409,8 +389,6 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     });
   }
 
-  // Escáner desde la barra de búsqueda:
-  // si el código existe → buscar, si no → abrir formulario
   Future<void> _escanearEnBusqueda() async {
     final codigo = await Navigator.push<String>(
       context,
@@ -422,12 +400,237 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     if (!mounted) return;
 
     if (existente != null) {
-      _searchController.text = codigo;
-      setState(() => _queryActual = codigo);
-      _cargarPagina(reset: true);
+      _abrirActualizacionPrecio(existente);
     } else {
       _abrirFormulario(barraPrecargada: codigo);
     }
+  }
+
+  void _abrirActualizacionPrecio(Producto producto) {
+    final mayorCtrl = TextEditingController(text: producto.mayor);
+    final minorCtrl = TextEditingController(text: producto.minor);
+    final porcentajeCtrl = TextEditingController();
+    bool usarPorcentaje = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(producto.desc,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              Text(producto.marca,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setStateDialog(() => usarPorcentaje = false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: !usarPorcentaje ? _kRojo : Colors.grey[200],
+                            borderRadius: const BorderRadius.horizontal(
+                                left: Radius.circular(8)),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'Precio directo',
+                            style: TextStyle(
+                              color: !usarPorcentaje ? Colors.white : Colors.black54,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setStateDialog(() => usarPorcentaje = true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: usarPorcentaje ? _kRojo : Colors.grey[200],
+                            borderRadius: const BorderRadius.horizontal(
+                                right: Radius.circular(8)),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'Porcentaje',
+                            style: TextStyle(
+                              color: usarPorcentaje ? Colors.white : Colors.black54,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Column(children: [
+                        const Text('Mayor actual',
+                            style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text('\$${producto.mayor}',
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ]),
+                      Column(children: [
+                        const Text('Menor actual',
+                            style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text('\$${producto.minor}',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, color: Colors.red)),
+                      ]),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (!usarPorcentaje) ...[
+                  TextField(
+                    controller: mayorCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Precio mayorista nuevo',
+                      border: OutlineInputBorder(),
+                      prefixText: '\$ ',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: minorCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Precio minorista nuevo',
+                      border: OutlineInputBorder(),
+                      prefixText: '\$ ',
+                    ),
+                  ),
+                ] else ...[
+                  TextField(
+                    controller: porcentajeCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Porcentaje de aumento',
+                      border: OutlineInputBorder(),
+                      suffixText: '%',
+                      hintText: 'Ej: 15',
+                    ),
+                    onChanged: (val) {
+                      final pct = double.tryParse(val.replaceAll(',', '.'));
+                      if (pct != null) {
+                        final mayorNum = double.tryParse(
+                            producto.mayor.replaceAll(',', '.'));
+                        final minorNum = double.tryParse(
+                            producto.minor.replaceAll(',', '.'));
+                        if (mayorNum != null) {
+                          mayorCtrl.text = (mayorNum * (1 + pct / 100))
+                              .toStringAsFixed(2)
+                              .replaceAll('.', ',');
+                        }
+                        if (minorNum != null) {
+                          minorCtrl.text = (minorNum * (1 + pct / 100))
+                              .toStringAsFixed(2)
+                              .replaceAll('.', ',');
+                        }
+                        setStateDialog(() {});
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  if (mayorCtrl.text != producto.mayor || minorCtrl.text != producto.minor)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Column(children: [
+                            const Text('Mayor nuevo',
+                                style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            Text('\$${mayorCtrl.text}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green)),
+                          ]),
+                          Column(children: [
+                            const Text('Menor nuevo',
+                                style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            Text('\$${minorCtrl.text}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green)),
+                          ]),
+                        ],
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                mayorCtrl.dispose();
+                minorCtrl.dispose();
+                porcentajeCtrl.dispose();
+                Navigator.pop(ctx);
+              },
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: _kRojo, foregroundColor: Colors.white),
+              onPressed: () async {
+                final mayorStr = mayorCtrl.text.replaceAll(',', '.');
+                final minorStr = minorCtrl.text.replaceAll(',', '.');
+                if (double.tryParse(mayorStr) == null ||
+                    double.tryParse(minorStr) == null) {
+                  _notificar('Los precios deben ser números válidos');
+                  return;
+                }
+                final actualizado = producto.copyWith(
+                  mayor: mayorCtrl.text.trim(),
+                  minor: minorCtrl.text.trim(),
+                );
+                await DatabaseService.actualizar(actualizado);
+                mayorCtrl.dispose();
+                minorCtrl.dispose();
+                porcentajeCtrl.dispose();
+                if (mounted) Navigator.pop(ctx);
+                _notificar('Precio actualizado');
+                if (_queryActual.isNotEmpty) _cargarPagina(reset: true);
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _importarArchivo() async {
@@ -456,9 +659,7 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     );
 
     try {
-      final productos =
-          await compute(_parsearArchivo, _ParseArgs(path, ext));
-
+      final productos = await compute(_parsearArchivo, _ParseArgs(path, ext));
       await DatabaseService.eliminarTodos();
       await DatabaseService.insertarLote(productos);
 
@@ -507,14 +708,12 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     try {
       final todos = await DatabaseService.todos();
       final excel = Excel.createExcel();
-
-      // excel ^4: rename Sheet1 → Precios, luego acceder con nuevo nombre
       excel.rename('Sheet1', 'Precios');
       final sheet = excel['Precios'];
 
       sheet.appendRow([
-        TextCellValue('CODIGO'),
-        TextCellValue('BARRA'),
+        TextCellValue('CODIGO INTERNO'),
+        TextCellValue('CODIGO DE BARRAS'),
         TextCellValue('DESCRIPCION'),
         TextCellValue('MARCA'),
         TextCellValue('MAYOR'),
@@ -522,15 +721,15 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
         TextCellValue('PROVEEDOR'),
       ]);
 
-      for (final p in todos) {
+      for (final prod in todos) {
         sheet.appendRow([
-          TextCellValue(p.codigo),
-          TextCellValue(p.barra),
-          TextCellValue(p.desc),
-          TextCellValue(p.marca),
-          TextCellValue(p.mayor),
-          TextCellValue(p.minor),
-          TextCellValue(p.prov),
+          TextCellValue(prod.codigo),
+          TextCellValue(prod.barra),
+          TextCellValue(prod.desc),
+          TextCellValue(prod.marca),
+          TextCellValue(prod.mayor),
+          TextCellValue(prod.minor),
+          TextCellValue(prod.prov),
         ]);
       }
 
@@ -543,7 +742,8 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
 
       if (mounted) {
         Navigator.of(context).pop();
-        await Share.shareXFiles([XFile(file.path)], text: 'Lista de precios El Torreon');
+        await SharePlus.instance.share(
+            ShareParams(files: [XFile(file.path)], text: 'Lista de precios El Torreon'));
       }
     } catch (e, stack) {
       debugPrint('ERROR EXCEL: $e');
@@ -567,8 +767,7 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
               child: const Text('Cancelar')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white),
+                backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Eliminar'),
           ),
@@ -585,15 +784,13 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
 
   void _notificar(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _abrirFormulario({Producto? existente, String? barraPrecargada}) {
     final esNuevo = existente == null;
     final controllers = {
-      'BARRA': TextEditingController(
-          text: barraPrecargada ?? existente?.barra ?? ''),
+      'BARRA': TextEditingController(text: barraPrecargada ?? existente?.barra ?? ''),
       'DESC': TextEditingController(text: existente?.desc ?? ''),
       'MARCA': TextEditingController(text: existente?.marca ?? ''),
       'MAYOR': TextEditingController(text: existente?.mayor ?? ''),
@@ -602,122 +799,142 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     };
     final nodes = List.generate(6, (_) => FocusNode());
 
+    final Future<String> codigoFuturo = esNuevo
+        ? DatabaseService.proximoCodigo()
+        : Future.value(existente!.codigo);
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(esNuevo ? 'Nuevo producto' : 'Editar producto'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Código de barras con botón escáner integrado
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: controllers['BARRA']!,
-                        focusNode: nodes[0],
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Código de barras',
-                          border: OutlineInputBorder(),
-                        ),
-                        onSubmitted: (_) =>
-                            FocusScope.of(ctx).requestFocus(nodes[1]),
+      builder: (ctx) => FutureBuilder<String>(
+        future: codigoFuturo,
+        builder: (ctx, snapshot) {
+          final codigoMostrado = snapshot.data ?? '...';
+          return AlertDialog(
+            title: Text(esNuevo ? 'Nuevo producto' : 'Editar producto'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: TextField(
+                      readOnly: true,
+                      decoration: InputDecoration(
+                        labelText: 'Código interno',
+                        border: const OutlineInputBorder(),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        prefixIcon: const Icon(Icons.tag),
                       ),
+                      controller: TextEditingController(text: codigoMostrado),
                     ),
-                    const SizedBox(width: 6),
-                    Material(
-                      color: _kRojo,
-                      borderRadius: BorderRadius.circular(8),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () async {
-                          final codigo = await Navigator.push<String>(
-                            ctx,
-                            MaterialPageRoute(
-                                builder: (_) => const EscanerPage()),
-                          );
-                          if (codigo != null) {
-                            controllers['BARRA']!.text = codigo;
-                          }
-                        },
-                        child: const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Icon(Icons.qr_code_scanner,
-                              color: Colors.white, size: 24),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: controllers['BARRA']!,
+                            focusNode: nodes[0],
+                            textInputAction: TextInputAction.next,
+                            decoration: const InputDecoration(
+                              labelText: 'Código de barras',
+                              border: OutlineInputBorder(),
+                            ),
+                            onSubmitted: (_) =>
+                                FocusScope.of(ctx).requestFocus(nodes[1]),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 6),
+                        Material(
+                          color: _kRojo,
+                          borderRadius: BorderRadius.circular(8),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () async {
+                              final codigo = await Navigator.push<String>(
+                                ctx,
+                                MaterialPageRoute(
+                                    builder: (_) => const EscanerPage()),
+                              );
+                              if (codigo != null) {
+                                controllers['BARRA']!.text = codigo;
+                              }
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Icon(Icons.qr_code_scanner,
+                                  color: Colors.white, size: 24),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  _campo(controllers['DESC']!, nodes[1], nodes[2], 'Descripción'),
+                  _campo(controllers['MARCA']!, nodes[2], nodes[3], 'Marca'),
+                  _campo(controllers['MAYOR']!, nodes[3], nodes[4], 'Precio mayorista',
+                      isNum: true),
+                  _campo(controllers['MINOR']!, nodes[4], nodes[5], 'Precio minorista',
+                      isNum: true),
+                  _campo(controllers['PROV']!, nodes[5], null, 'Proveedor'),
+                ],
               ),
-              _campo(controllers['DESC']!, nodes[1], nodes[2], 'Descripción'),
-              _campo(controllers['MARCA']!, nodes[2], nodes[3], 'Marca'),
-              _campo(controllers['MAYOR']!, nodes[3], nodes[4],
-                  'Precio mayorista',
-                  isNum: true),
-              _campo(controllers['MINOR']!, nodes[4], nodes[5],
-                  'Precio minorista',
-                  isNum: true),
-              _campo(controllers['PROV']!, nodes[5], null, 'Proveedor'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  _liberarFormulario(controllers, nodes);
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final mayorStr = controllers['MAYOR']!.text.replaceAll(',', '.');
+                  final minorStr = controllers['MINOR']!.text.replaceAll(',', '.');
+                  if (double.tryParse(mayorStr) == null ||
+                      double.tryParse(minorStr) == null) {
+                    _notificar('Los precios deben ser números válidos');
+                    return;
+                  }
+
+                  final producto = Producto(
+                    id: existente?.id,
+                    codigo: esNuevo
+                        ? await DatabaseService.proximoCodigo()
+                        : existente!.codigo,
+                    barra: controllers['BARRA']!.text.trim(),
+                    desc: controllers['DESC']!.text.trim(),
+                    marca: controllers['MARCA']!.text.trim(),
+                    mayor: controllers['MAYOR']!.text.trim(),
+                    minor: controllers['MINOR']!.text.trim(),
+                    prov: controllers['PROV']!.text.trim(),
+                  );
+
+                  if (esNuevo) {
+                    await DatabaseService.insertar(producto);
+                  } else {
+                    await DatabaseService.actualizar(producto);
+                  }
+
+                  _liberarFormulario(controllers, nodes);
+                  if (mounted) Navigator.pop(ctx);
+                  await _cargarPagina(reset: true);
+                  await _actualizarContador();
+                },
+                child: const Text('Guardar'),
+              ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _liberarFormulario(controllers, nodes);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final mayorStr =
-                  controllers['MAYOR']!.text.replaceAll(',', '.');
-              final minorStr =
-                  controllers['MINOR']!.text.replaceAll(',', '.');
-              if (double.tryParse(mayorStr) == null ||
-                  double.tryParse(minorStr) == null) {
-                _notificar('Los precios deben ser números válidos');
-                return;
-              }
-
-              final producto = Producto(
-                id: existente?.id,
-                codigo: existente?.codigo ?? '',
-                barra: controllers['BARRA']!.text.trim(),
-                desc: controllers['DESC']!.text.trim(),
-                marca: controllers['MARCA']!.text.trim(),
-                mayor: controllers['MAYOR']!.text.trim(),
-                minor: controllers['MINOR']!.text.trim(),
-                prov: controllers['PROV']!.text.trim(),
-              );
-
-              if (esNuevo) {
-                await DatabaseService.insertar(producto);
-              } else {
-                await DatabaseService.actualizar(producto);
-              }
-
-              _liberarFormulario(controllers, nodes);
-              if (mounted) Navigator.pop(ctx);
-              await _cargarPagina(reset: true);
-              await _actualizarContador();
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
   void _liberarFormulario(
-      Map<String, TextEditingController> controllers,
-      List<FocusNode> nodes) {
+      Map<String, TextEditingController> controllers, List<FocusNode> nodes) {
     for (final c in controllers.values) c.dispose();
     for (final n in nodes) n.dispose();
   }
@@ -737,10 +954,8 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
         keyboardType: isNum
             ? const TextInputType.numberWithOptions(decimal: true)
             : TextInputType.text,
-        textInputAction:
-            next != null ? TextInputAction.next : TextInputAction.done,
-        decoration: InputDecoration(
-            labelText: label, border: const OutlineInputBorder()),
+        textInputAction: next != null ? TextInputAction.next : TextInputAction.done,
+        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
         onSubmitted: (_) =>
             next != null ? FocusScope.of(context).requestFocus(next) : null,
       ),
@@ -791,7 +1006,7 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
                   child: TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
-                      labelText: 'Buscar por descripción o código...',
+                      labelText: 'Buscar por descripción, código, marca...',
                       prefixIcon: const Icon(Icons.search),
                       border: const OutlineInputBorder(),
                       suffixIcon: _queryActual.isNotEmpty
@@ -848,12 +1063,11 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
                           if (index == _lista.length) {
                             return const Padding(
                               padding: EdgeInsets.all(16),
-                              child: Center(
-                                  child: CircularProgressIndicator()),
+                              child: Center(child: CircularProgressIndicator()),
                             );
                           }
-                          final p = _lista[index];
-                          final isSelected = _selectedId == p.id;
+                          final prod = _lista[index];
+                          final isSelected = _selectedId == prod.id;
                           return Card(
                             margin: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 3),
@@ -861,12 +1075,11 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
                             child: ListTile(
                               onTap: () {
                                 setState(() {
-                                  _selectedId =
-                                      isSelected ? null : p.id;
+                                  _selectedId = isSelected ? null : prod.id;
                                 });
                               },
                               title: Text(
-                                p.desc,
+                                prod.desc,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black,
@@ -877,7 +1090,7 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '\$${p.minor}',
+                                    '\$${prod.minor}',
                                     style: const TextStyle(
                                       color: Colors.red,
                                       fontSize: 20,
@@ -885,7 +1098,7 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
                                     ),
                                   ),
                                   Text(
-                                    'Mayor: \$${p.mayor}  |  ${p.marca}',
+                                    'Mayor: \$${prod.mayor}  |  ${prod.marca}',
                                     style: const TextStyle(
                                       color: Colors.black54,
                                       fontSize: 12,
@@ -902,13 +1115,13 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
                                           icon: const Icon(Icons.edit,
                                               color: Colors.blue),
                                           onPressed: () =>
-                                              _abrirFormulario(existente: p),
+                                              _abrirFormulario(existente: prod),
                                         ),
                                         IconButton(
                                           icon: const Icon(Icons.delete,
                                               color: Colors.red),
                                           onPressed: () =>
-                                              _eliminarProducto(p),
+                                              _eliminarProducto(prod),
                                         ),
                                       ],
                                     )
@@ -923,10 +1136,6 @@ class _ListaPreciosAppState extends State<ListaPreciosApp> {
     );
   }
 }
-
-// ─────────────────────────────────────────────
-// PÁGINA DE ESCÁNER
-// ─────────────────────────────────────────────
 
 class EscanerPage extends StatefulWidget {
   const EscanerPage({super.key});
